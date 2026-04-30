@@ -1,0 +1,112 @@
+[project]
+name = "notifier"
+version = "0.1.0"
+dependencies = [
+    "fastapi==0.115.8",
+    "uvicorn==0.34.0",
+    "python-dotenv==1.0.1",
+    "boto3==1.34.162",
+    "botocore==1.34.162",
+    "pydantic==2.10.6",
+    "jinja2>=3.1.0",
+    "weasyprint>=60.0",
+    "playwright>=1.45.0",
+    "qrcode>=7.4.2",
+    "pillow>=10.0.0",
+    "aws-xray-sdk>=2.12.0",
+]
+
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project.optional-dependencies]
+dev = [
+    "ruff",
+    "pytest",
+    "pytest-cov",
+    "pytest-asyncio",
+    "bandit",
+    "httpx>=0.24.0",
+    "pre-commit",
+]
+
+[tool.ruff]
+line-length = 88
+target-version = "py38"
+
+[tool.ruff.lint]
+select = [
+    "E",
+    "W",
+    "F",
+    "I",
+    "B",
+    "C4",
+    "UP",
+    "ARG",
+    "SIM",
+]
+ignore = [
+    "E501",
+    "UP006",
+    "UP045",
+    "ARG001",
+]
+
+[tool.ruff.format]
+quote-style = "double"
+indent-style = "space"
+
+[tool.ruff.lint.isort]
+known-first-party = [
+    "src",
+    "main",
+    "config",
+    "logger",
+]
+
+[tool.bandit]
+exclude_dirs = ["tests", "venv", ".venv"]
+skips = ["B101"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["src"]
+python_files = ["test_*.py"]
+python_classes = ["Test*"]
+python_functions = ["test_*"]
+asyncio_mode = "auto"
+addopts = "-v --strict-markers --tb=short"
+markers = [
+    "asyncio: mark test as async",
+    "slow: mark test as slow",
+    "integration: mark test as integration test",
+]
+
+[tool.coverage.run]
+source = ["src"]
+omit = [
+    "*/tests/*",
+    "*/venv/*",
+    "*/__pycache__/*",
+]
+
+[tool.coverage.report]
+exclude_lines = [
+    "pragma: no cover",
+    "def __repr__",
+    "raise AssertionError",
+    "raise NotImplementedError",
+    "if __name__ == .__main__.:",
+    "if TYPE_CHECKING:",
+    "class .*\\bProtocol\\):",
+    "@(abc\\.)?abstractmethod",
+]
+precision = 2
+
+[tool.setuptools]
+package-dir = {"" = "src"}
+
+[tool.setuptools.packages.find]
+where = ["src"]

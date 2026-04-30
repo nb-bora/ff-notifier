@@ -1,0 +1,52 @@
+<!DOCTYPE html>
+<html lang="fr">
+
+<head>
+    <meta charset="utf-8" />
+    <title>FairFare — Erreur de traitement</title>
+</head>
+
+<body style="margin:0;padding:0;font-family: Arial, Helvetica, sans-serif; font-size: 15px; line-height: 1.6; color: #222; background:#ffffff;">
+    <div style="max-width:720px;margin:0 auto;padding:24px 18px;">
+        <p style="font-size:12px;letter-spacing:0.06em;color:#444;margin:0 0 14px 0;">
+            <strong>FAIRFARE™</strong> — NOTIFICATION
+        </p>
+        <hr style="border:0;border-top:1px solid #e6e6e6;margin:0 0 18px 0;">
+
+        <p style="margin:0 0 12px 0;">{{ greeting_word }} {{ user_name }},</p>
+        <p style="margin:0 0 12px 0;">
+            Nous avons rencontré une erreur lors du traitement de votre demande.
+        </p>
+
+        {% if color == "#2ecc71" %}
+        <div style="background:#f7f7f7;border:1px solid #e8e8e8;border-left:4px solid #2ecc71;border-radius:10px;padding:12px 14px;margin:0 0 14px 0;">
+            <p style="margin:0;"><strong>{{ error_content }}</strong></p>
+        </div>
+        {% elif color == "#3498db" %}
+        <div style="background:#f7f7f7;border:1px solid #e8e8e8;border-left:4px solid #3498db;border-radius:10px;padding:12px 14px;margin:0 0 14px 0;">
+            <p style="margin:0;"><strong>{{ error_content }}</strong></p>
+        </div>
+        {% else %}
+        <div style="background:#f7f7f7;border:1px solid #e8e8e8;border-left:4px solid #e74c3c;border-radius:10px;padding:12px 14px;margin:0 0 14px 0;">
+            <p style="margin:0;"><strong>{{ error_content }}</strong></p>
+        </div>
+        {% endif %}
+
+        <p style="margin:0 0 14px 0;">
+            Référence&nbsp;: <code style="background-color:#f0f0f0;padding:2px 6px;border-radius:3px;">{{ fare_event_id }}</code>
+        </p>
+        <p style="margin:0 0 18px 0;">Si le problème persiste, merci de contacter le support.</p>
+
+        <p style="margin:0;">
+            Bien cordialement,<br>
+            <strong>FairFare™ | Smart Travel Intelligence Team</strong>
+        </p>
+
+        <hr style="border:0;border-top:1px solid #e6e6e6;margin:18px 0 12px 0;">
+        <p style="margin:0;font-size:12px;color:#666;">
+            Cet email a été généré automatiquement. Merci de ne pas répondre directement à ce message.
+        </p>
+    </div>
+</body>
+
+</html>

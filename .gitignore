@@ -1,0 +1,39 @@
+# Python
+__pycache__/
+*.py[codz]
+*$py.class
+
+# Environments
+.env
+.venv
+venv/
+ENV/
+env/
+
+# Packaging
+build/
+dist/
+*.egg-info/
+
+# Test / coverage
+.pytest_cache/
+.coverage
+coverage.xml
+htmlcov/
+
+# Ruff
+.ruff_cache/
+
+# Playwright
+playwright-report/
+test-results/
+
+# OS / editor
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
+
+# Cursor
+.cursorignore
+.cursorindexingignore
