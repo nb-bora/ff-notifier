@@ -1,0 +1,82 @@
+<!DOCTYPE html>
+<html lang="fr">
+
+<head>
+    <meta charset="utf-8">
+    <title>FairFare — Action requise</title>
+</head>
+
+<body
+    style="margin:0;padding:0;font-family: Arial, Helvetica, sans-serif; font-size: 15px; line-height: 1.6; color: #222; background:#ffffff;">
+    {% set v = event.variables %}
+    <div style="max-width:720px;margin:0 auto;padding:24px 18px;">
+        <p style="font-size:12px;letter-spacing:0.06em;color:#444;margin:0 0 14px 0;">
+            <strong>FAIRFARE™</strong> — ACTION REQUISE
+        </p>
+        <hr style="border:0;border-top:1px solid #e6e6e6;margin:0 0 18px 0;">
+
+        <p style="margin:0 0 12px 0;">
+            Bonjour{% if v.user_first_name %} {{ v.user_first_name }}{% endif %},
+        </p>
+
+        <p style="margin:0 0 12px 0;">
+            Nous n’avons pas pu traiter automatiquement votre demande.
+            {% if v.human_summary %}<br><strong>Raison :</strong> {{ v.human_summary }}{% endif %}
+        </p>
+
+        {% if v.missing_fields and v.missing_fields|length > 0 %}
+        <p style="margin:0 0 8px 0;"><strong>Merci de compléter les informations suivantes :</strong></p>
+        <ul style="margin:0 0 16px 0;padding-left:20px;">
+            {% for m in v.missing_fields %}
+            <li style="margin:0 0 10px 0;">
+                <strong>{{ m.label }}</strong><br>
+                {% if m.expected %}<span style="color:#333;">Attendu :</span> {{ m.expected }}<br>{% endif %}
+                {% if m.found %}<span style="color:#333;">Reçu :</span> {{ m.found }}<br>{% endif %}
+                {% if m.fix_hint %}<span style="color:#333;">À faire :</span> {{ m.fix_hint }}{% endif %}
+            </li>
+            {% endfor %}
+        </ul>
+        {% else %}
+        <p style="margin:0 0 8px 0;"><strong>Merci de répondre en précisant :</strong></p>
+        <ul style="margin:0 0 16px 0;padding-left:20px;">
+            <li>trajet (aéroports / villes) + codes IATA si possible,</li>
+            <li>dates/heures (format clair),</li>
+            <li>aller simple ou aller-retour,</li>
+            <li>nombre de passagers + classe.</li>
+        </ul>
+        {% endif %}
+
+        {% if v.original_email %}
+        <p style="margin:0 0 14px 0;">
+            Référence&nbsp;: <strong>{{ event.event_id }}</strong>
+            {% if v.original_email.subject %} · Sujet&nbsp;: <strong>{{ v.original_email.subject }}</strong>{% endif %}
+        </p>
+        {% endif %}
+
+        <div
+            style="background:#f7f7f7;border:1px solid #e8e8e8;border-radius:10px;padding:12px 14px;margin:0 0 14px 0;">
+            <p style="margin:0;font-size:13px;color:#333;">
+                Réponds simplement à cet email avec les informations manquantes. Dès réception, nous relancerons le
+                traitement.
+            </p>
+        </div>
+
+        <p style="margin:0 0 12px 0;">
+            {% if v.support_contact %}
+            Besoin d’aide ? <a href="mailto:{{ v.support_contact }}">{{ v.support_contact }}</a>
+            {% endif %}
+        </p>
+
+        <p style="margin:18px 0 0 0;">
+            Bien cordialement,<br>
+            <strong>FairFare™ | Smart Travel Intelligence Team</strong>
+        </p>
+
+        <hr style="border:0;border-top:1px solid #e6e6e6;margin:18px 0 12px 0;">
+        <p style="margin:0;font-size:12px;color:#666;">
+            Cet email a été généré automatiquement. Merci de ne pas répondre à un autre canal.
+        </p>
+    </div>
+</body>
+
+</html>

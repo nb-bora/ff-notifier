@@ -159,10 +159,10 @@ class SESClient:
                 )
 
             logger.info(
-                "Email sent from %s to %s (intended: %s)",
-                settings.ses_sender_email,
-                actual_recipient,
-                recipient,
+                "Email sent (from_domain=%s to_domain=%s intended_domain=%s)",
+                _email_domain(settings.ses_sender_email),
+                _email_domain(actual_recipient),
+                _email_domain(recipient),
             )
             return True
 
@@ -490,6 +490,11 @@ class SQSConsumer:
         receipt_handle = message.get("ReceiptHandle")
 
         try:
+            hb_task = None
+            if receipt_handle:
+                hb_task = asyncio.create_task(
+                    self._visibility_heartbeat(receipt_handle=receipt_handle)
+                )
             body = self._decode_body_json(message)
             logger.info("Processing message %s", message_id)
             fare_result, parse_err = self._try_parse_fare_result(body)
@@ -527,6 +532,10 @@ class SQSConsumer:
             )
             self._inc_errors(1)
         finally:
+            if hb_task is not None:
+                hb_task.cancel()
+                with contextlib.suppress(asyncio.CancelledError):
+                    await hb_task
             self.metrics.emit(
                 "MessageProcessingDuration",
                 (time.monotonic() - _t0) * 1000,
@@ -802,7 +811,7 @@ class SQSConsumer:
         ref_id: str,
         out_html: Optional[pathlib.Path],
     ) -> str:
-        html_str = resolve_audit_report_html(fare_payload)
+        html_str = resolve_audit_report_html(fare_payload, _AUDIT_REPORT_LAYOUT)
         logger.info("Audit HTML rendered (layout=%s, fare=%s)", _AUDIT_REPORT_LAYOUT, ref_id)
         if out_html is not None:
             out_html.write_text(html_str, encoding="utf-8")
@@ -955,3 +964,33 @@ class SQSConsumer:
             logger.info("Message successfully deleted from SQS queue")
         except Exception as e:
             logger.error("Error deleting message from SQS: %s", str(e), exc_info=True)
+
+    async def _visibility_heartbeat(self, *, receipt_handle: str) -> None:
+        """
+        Prolonge périodiquement le visibility timeout pendant le traitement.
+
+        Sans heartbeat, un rendu PDF ou une latence SES > `SQS_VISIBILITY_TIMEOUT`
+        peut rendre le message visible et déclencher un traitement en double.
+        """
+        interval = max(1, int(getattr(settings, "sqs_heartbeat_interval_seconds", 60)))
+        extend = max(1, int(getattr(settings, "sqs_heartbeat_extend_seconds", 120)))
+        # This task is scoped to a single message processing; it will be cancelled
+        # in `_process_message_inner` once processing finishes.
+        while True:
+            await asyncio.sleep(interval)
+            loop = asyncio.get_event_loop()
+            try:
+                await loop.run_in_executor(
+                    self.executor,
+                    lambda: self.sqs_client.change_message_visibility(
+                        QueueUrl=settings.sqs_fare_result_queue_url,
+                        ReceiptHandle=receipt_handle,
+                        VisibilityTimeout=extend,
+                    ),
+                )
+                logger.debug("Extended message visibility by %ss", extend)
+            except Exception as exc:
+                logger.warning(
+                    "Failed to extend message visibility (will rely on SQS retry): %s",
+                    str(exc),
+                )

@@ -1,0 +1,56 @@
+<!DOCTYPE html>
+<html lang="fr">
+
+<head>
+    <meta charset="utf-8">
+    <title>FairFare — Traitement en attente</title>
+</head>
+
+<body
+    style="margin:0;padding:0;font-family: Arial, Helvetica, sans-serif; font-size: 15px; line-height: 1.6; color: #222; background:#ffffff;">
+    {% set v = event.variables %}
+    <div style="max-width:720px;margin:0 auto;padding:24px 18px;">
+        <p style="font-size:12px;letter-spacing:0.06em;color:#444;margin:0 0 14px 0;">
+            <strong>FAIRFARE™</strong> — TRAITEMENT EN ATTENTE
+        </p>
+        <hr style="border:0;border-top:1px solid #e6e6e6;margin:0 0 18px 0;">
+
+        <p style="margin:0 0 12px 0;">
+            Bonjour{% if v.user_first_name %} {{ v.user_first_name }}{% endif %},
+        </p>
+
+        <p style="margin:0 0 12px 0;">
+            Nous n’avons pas réussi à traiter votre demande après plusieurs tentatives.
+            Notre équipe a été alertée.
+        </p>
+
+        {% if v.human_summary %}
+        <p style="margin:0 0 14px 0;"><strong>Détail :</strong> {{ v.human_summary }}</p>
+        {% endif %}
+
+        <div
+            style="background:#f7f7f7;border:1px solid #e8e8e8;border-radius:10px;padding:12px 14px;margin:0 0 14px 0;">
+            <p style="margin:0;font-size:13px;color:#333;">
+                Aucune action n’est requise pour le moment. Si besoin urgent, renvoie ton message en reformulant
+                clairement
+                le trajet, les dates/heures, le nombre de passagers et la classe.
+            </p>
+        </div>
+
+        <p style="margin:0 0 14px 0;">
+            Référence&nbsp;: <strong>{{ event.event_id }}</strong>
+        </p>
+
+        <p style="margin:18px 0 0 0;">
+            Bien cordialement,<br>
+            <strong>FairFare™ | Smart Travel Intelligence Team</strong>
+        </p>
+
+        <hr style="border:0;border-top:1px solid #e6e6e6;margin:18px 0 12px 0;">
+        <p style="margin:0;font-size:12px;color:#666;">
+            Cet email a été généré automatiquement.
+        </p>
+    </div>
+</body>
+
+</html>

@@ -20,6 +20,7 @@ Points importants:
 import base64
 import contextlib
 import io
+import os
 import re
 import string
 import sys
@@ -27,7 +28,7 @@ import tempfile
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
-from typing import Any, List, Optional
+from typing import Any, List, Optional, Tuple
 
 import qrcode
 from jinja2 import Template
@@ -35,7 +36,19 @@ from jinja2 import Template
 from config import settings
 from logger import logger
 
+_IATA_DB: dict[str, dict] | None = None
+_CITY_CODE_OVERRIDES: dict[str, tuple[str, str]] = {
+    # Common metropolitan codes (not always present as airports in IATA tables)
+    "PAR": ("Paris", "France"),
+    "LON": ("London", "United Kingdom"),
+    "NYC": ("New York", "United States"),
+    "TYO": ("Tokyo", "Japan"),
+    "SAO": ("São Paulo", "Brazil"),
+}
+
 _EXECUTIVE_TEMPLATE: Optional[Template] = None
+_RESERVATION_ONE_WAY_TEMPLATE: Optional[Template] = None
+_RESERVATION_ROUND_TRIP_TEMPLATE: Optional[Template] = None
 
 
 def _get_executive_template() -> Template:
@@ -52,6 +65,30 @@ def _get_executive_template() -> Template:
             autoescape=True,
         )
     return _EXECUTIVE_TEMPLATE
+
+
+def _get_reservation_one_way_template() -> Template:
+    """Retourne le template Jinja2 (cache) pour les documents réservation aller simple."""
+    global _RESERVATION_ONE_WAY_TEMPLATE
+    if _RESERVATION_ONE_WAY_TEMPLATE is None:
+        tpl_path = _TEMPLATE_DIR / "documents" / "template-reservation-aller-simple.html"
+        _RESERVATION_ONE_WAY_TEMPLATE = Template(
+            tpl_path.read_text(encoding="utf-8"),
+            autoescape=True,
+        )
+    return _RESERVATION_ONE_WAY_TEMPLATE
+
+
+def _get_reservation_round_trip_template() -> Template:
+    """Retourne le template Jinja2 (cache) pour les documents réservation aller-retour."""
+    global _RESERVATION_ROUND_TRIP_TEMPLATE
+    if _RESERVATION_ROUND_TRIP_TEMPLATE is None:
+        tpl_path = _TEMPLATE_DIR / "documents" / "template-reservation-aller-retour.html"
+        _RESERVATION_ROUND_TRIP_TEMPLATE = Template(
+            tpl_path.read_text(encoding="utf-8"),
+            autoescape=True,
+        )
+    return _RESERVATION_ROUND_TRIP_TEMPLATE
 
 def create_qr_code(data: str) -> bytes:
     """Construit un QR code PNG (bytes) à partir d’un texte.
@@ -221,6 +258,61 @@ def _exec_parse_inputs(fare_result_dict: dict) -> tuple[dict, str, dict]:
     return meta, str(fare_id), travel
 
 
+def _iata_db() -> dict[str, dict]:
+    """Charge une base IATA déterministe (en mémoire) via `airportsdata`."""
+    global _IATA_DB
+    if _IATA_DB is None:
+        try:
+            import airportsdata
+
+            _IATA_DB = airportsdata.load("IATA")  # dict: code -> airport dict
+        except Exception:
+            _IATA_DB = {}
+    return _IATA_DB
+
+
+def _iata_city_country(code: str) -> tuple[str | None, str | None]:
+    """Retourne (city, country) pour un code IATA (avec overrides métropolitains)."""
+    c = (code or "").strip().upper()
+    if not c:
+        return None, None
+    if c in _CITY_CODE_OVERRIDES:
+        return _CITY_CODE_OVERRIDES[c]
+    rec = _iata_db().get(c)
+    if not isinstance(rec, dict):
+        return None, None
+    city = rec.get("city")
+    country = rec.get("country")
+    return (city if isinstance(city, str) and city.strip() else None), (
+        country if isinstance(country, str) and country.strip() else None
+    )
+
+
+def _iata_display_full(code: str) -> str:
+    """Ex: 'PAR' -> 'Paris, France' (sinon code si inconnu)."""
+    c = (code or "").strip().upper()
+    city, country = _iata_city_country(c)
+    if city and country:
+        return f"{city}, {country}"
+    if city:
+        return city
+    return c or "—"
+
+
+def _iata_display_city(code: str) -> str:
+    """Ex: 'PAR' -> 'Paris' (sinon code si inconnu)."""
+    c = (code or "").strip().upper()
+    city, _country = _iata_city_country(c)
+    return city or c or "—"
+
+
+def _travel_is_round_trip(travel: dict) -> bool:
+    """Détermine si le voyage est AR selon (trip_type + return_date non vide)."""
+    trip_type = (travel.get("trip_type") or "one_way").strip().lower()
+    ret = (travel.get("return_date") or "").strip()
+    return trip_type == "round_trip" and bool(ret)
+
+
 def _exec_route_meta(
     origin: str,
     destination: str,
@@ -228,15 +320,22 @@ def _exec_route_meta(
     dep_fmt: str,
     ret_fmt: str,
 ) -> tuple[str, str]:
-    """Construit (route_title, travel_date_meta) à afficher sur le rapport."""
-    if trip_type == "round_trip" and ret_fmt:
+    """Construit (route_title, travel_date_meta) à afficher sur le rapport.
+
+    `origin` / `destination` sont des libellés courts (ex. villes via IATA), pas
+    « Ville, Pays » — pour éviter les chaînes du type « Paris, France → … → Paris, France ».
+    """
+    tt = str(trip_type or "").strip().lower()
+    if tt == "round_trip" and ret_fmt:
         return f"{origin} → {destination} → {origin}", f"{dep_fmt} – {ret_fmt}"
     return f"{origin} → {destination}", dep_fmt
 
 
 def _exec_build_travel_context(*, meta: dict, fare_id: str, travel: dict) -> dict:
-    origin = travel.get("origin", "N/A")
-    destination = travel.get("destination", "N/A")
+    origin_code = travel.get("origin", "N/A")
+    destination_code = travel.get("destination", "N/A")
+    origin = _iata_display_full(str(origin_code))
+    destination = _iata_display_full(str(destination_code))
     trip_type = travel.get("trip_type", "one_way")
     cabin = (travel.get("cabin_class") or "Economy").capitalize()
     dep_fmt = _fmt_date(travel.get("departure_date", ""))
@@ -245,9 +344,13 @@ def _exec_build_travel_context(*, meta: dict, fare_id: str, travel: dict) -> dic
     adults = int(travel.get("passengers_adults") or 1)
     children = int(travel.get("passengers_children") or 0)
 
-    passenger = _extract_sender_name(meta.get("sender", ""))
+    passenger = _passenger_display_name(meta)
     audit_id = f"FFA-{fare_id[:8].upper()}"
-    route_title, travel_date_meta = _exec_route_meta(origin, destination, trip_type, dep_fmt, ret_fmt)
+    origin_city = _iata_display_city(str(origin_code))
+    destination_city = _iata_display_city(str(destination_code))
+    route_title, travel_date_meta = _exec_route_meta(
+        origin_city, destination_city, str(trip_type), dep_fmt, ret_fmt
+    )
     pax_str = f"{adults} Adult{'s' if adults > 1 else ''}"
     if children:
         pax_str += f", {children} Child{'ren' if children > 1 else ''}"
@@ -255,6 +358,8 @@ def _exec_build_travel_context(*, meta: dict, fare_id: str, travel: dict) -> dic
     return {
         "origin": origin,
         "destination": destination,
+        "origin_code": str(origin_code),
+        "destination_code": str(destination_code),
         "trip_type": trip_type,
         "cabin": cabin,
         "dep_fmt": dep_fmt,
@@ -276,8 +381,8 @@ def _exec_primary_airline(offers: List[dict]) -> str:
 
 def _exec_sector_meta(*, offers: List[dict], tctx: dict, primary_airline: str) -> str:
     fd0 = (offers[0].get("flight_details") or {}) if offers else {}
-    o0 = tctx["origin"] if tctx["origin"] != "N/A" else fd0.get("origin") or "—"
-    d0 = tctx["destination"] if tctx["destination"] != "N/A" else fd0.get("destination") or "—"
+    o0 = str(tctx.get("origin_code") or fd0.get("origin") or "—")
+    d0 = str(tctx.get("destination_code") or fd0.get("destination") or "—")
     return _format_sector_meta(offers[0] if offers else None, primary_airline, o0, d0)
 
 
@@ -476,13 +581,76 @@ def _fmt_duration(pt: str) -> str:
     return str(pt)
 
 
-def _extract_sender_name(sender: str) -> str:
-    """Normalise un expéditeur email `Name <x@y>` vers un nom d’affichage."""
-    try:
-        name = sender.split("<")[0].strip().strip('"').strip()
-        return f"Mr. {name}" if name else sender
-    except Exception:
-        return sender
+def _passenger_display_name(meta: dict) -> str:
+    """Retourne un nom passager lisible.
+
+    Règles (best-effort, déterministes):
+    - Si `meta["name"]` est présent ⇒ l’utiliser.
+    - Sinon, si `meta["sender"]` est au format `Name <email>` ⇒ `Name`.
+    - Sinon, dériver un nom depuis l’email (partie locale), en supprimant `+tag`
+      et en transformant `.`, `_`, `-` en espaces.
+    - Fallback : "Voyageur".
+    """
+    raw_name = (meta.get("name") or meta.get("traveler_name") or meta.get("passenger_name") or "").strip()
+    if raw_name:
+        return _clean_person_name(raw_name)
+
+    sender = str(meta.get("sender") or "").strip()
+    if sender:
+        # Handle "Name <email@x>".
+        if "<" in sender and ">" in sender:
+            left = sender.split("<", 1)[0].strip().strip('"').strip()
+            if left and "@" not in left:
+                return _clean_person_name(left)
+            email = sender.split("<", 1)[1].split(">", 1)[0].strip()
+            derived = _derive_name_from_email(email)
+            return derived or "Voyageur"
+        # Plain email.
+        if "@" in sender:
+            derived = _derive_name_from_email(sender)
+            return derived or "Voyageur"
+        # Plain text.
+        if sender and "@" not in sender:
+            return _clean_person_name(sender)
+
+    return "Voyageur"
+
+
+def _clean_person_name(name: str) -> str:
+    n = " ".join(name.replace("\t", " ").split()).strip()
+    # Remove leading titles if present.
+    n = re.sub(r"^(mr|mrs|ms|mme|mlle|m|monsieur|madame)\.?\s+", "", n, flags=re.I)
+    return n or "Voyageur"
+
+
+def _derive_name_from_email(email: str) -> str | None:
+    e = (email or "").strip()
+    if "@" not in e:
+        return None
+    # Per requirement: keep ONLY what comes before '@'
+    local = e.split("@", 1)[0].strip()
+    if not local:
+        return None
+    if "+" in local:
+        local = local.split("+", 1)[0]
+
+    # If local contains '.' or '-' (or '_'), split and Title-Case each token.
+    if any(sep in local for sep in (".", "-", "_")):
+        parts = [p for p in re.split(r"[._-]+", local) if p]
+        cleaned: list[str] = []
+        for p in parts:
+            # Keep only letters; drop digits/symbols.
+            p2 = re.sub(r"[^a-zA-Z]", "", p)
+            if not p2:
+                continue
+            cleaned.append(p2.capitalize())
+        return " ".join(cleaned).strip() or None
+
+    # No separator: just capitalize the whole local part (letters only).
+    token = re.sub(r"[^a-zA-Z]", "", local)
+    if not token:
+        return None
+    return token if token.isupper() else token.capitalize()
 
 
 def _compliance_html(signal: str) -> str:
@@ -784,11 +952,15 @@ def _options_range_letters(labels: List[str]) -> str:
 def _format_sector_meta(
     lead_offer: Optional[dict], primary_airline: str, o0: str, d0: str
 ) -> str:
-    """Construit la meta “sector” (compagnie/vol/route) à afficher dans le rapport."""
+    """Construit la meta “sector” (compagnie/vol/route) à afficher dans le rapport.
+
+    `o0` / `d0` sont des codes IATA (ou assimilés) ; la route est affichée en villes.
+    """
+    r = f"{_iata_display_city(o0)} → {_iata_display_city(d0)}"
     if primary_airline in ("—", "N/A", ""):
-        return f"{o0} → {d0}"
+        return r
     if not lead_offer:
-        return f"{primary_airline} • {o0} → {d0}"
+        return f"{primary_airline} • {r}"
     fd = lead_offer.get("flight_details") or {}
     fn = (
         fd.get("flight_number")
@@ -797,8 +969,8 @@ def _format_sector_meta(
         or fd.get("flight")
     )
     if fn:
-        return f"{primary_airline} {fn} • {o0} → {d0}"
-    return f"{primary_airline} • {o0} → {d0}"
+        return f"{primary_airline} {fn} • {r}"
+    return f"{primary_airline} • {r}"
 
 
 def _pax_chip_short(pax_str: str) -> str:
@@ -1055,21 +1227,24 @@ class ExecutiveQrPayloadArgs:
 def _executive_plain_qr_payload(
     args: ExecutiveQrPayloadArgs,
 ) -> str:
-    """Construit le texte “plain” encodé dans le QR (executive audit)."""
-    lines: List[str] = []
-    lines.append("FAIRFARE — EXECUTIVE PROCUREMENT AUDIT")
-    lines.append("")
-    _qr_append_meta(args, lines)
-    lines.append("")
-    _qr_append_recommendation(args, lines)
-    lines.append("")
-    _qr_append_offers(args, lines)
-    lines.append("")
-    _qr_append_quick_rows(args, lines)
-    lines.append("")
-    _qr_append_details(args, lines)
+    """Construit le texte “plain” encodé dans le QR.
 
-    raw = "\n".join(lines)
+    Exigence produit: ne contenir que:
+    - nom utilisateur
+    - destination
+    - date de départ
+    """
+    # Destination: take last segment of route title (e.g., "Paris, France → London, UK")
+    dest = (args.route_title.split("→")[-1] if "→" in args.route_title else args.route_title).strip()
+    dep = (args.travel_date_meta.split("–")[0] if "–" in args.travel_date_meta else args.travel_date_meta).strip()
+
+    raw = "\n".join(
+        [
+            f"User: {args.passenger_meta}".strip(),
+            f"Destination: {dest}".strip(),
+            f"Departure date: {dep}".strip(),
+        ]
+    )
     trimmed = _trim_executive_plain_qr_text(raw, args.max_bytes)
     enc = trimmed.encode("utf-8")
     if len(enc) > 2953:
@@ -1216,7 +1391,12 @@ def _exec_offer_card(
     route_title: str,
     travel_date_meta: str,
 ) -> dict:
-    fd = offer.get("flight_details") or {}
+    fd_raw = offer.get("flight_details") or {}
+    if isinstance(fd_raw, list):
+        legs = [x for x in fd_raw if isinstance(x, dict)]
+        fd = legs[0] if legs else {}
+    else:
+        fd = fd_raw if isinstance(fd_raw, dict) else {}
     carriers = fd.get("carriers") or []
     airline_line = ", ".join(carriers) if carriers else "—"
     oc = fd.get("origin") or origin or "?"
@@ -1238,8 +1418,8 @@ def _exec_offer_card(
         "chips": chips,
         "dep_time": _fmt_time(fd.get("departure_at") or "") or "—",
         "arr_time": _fmt_time(fd.get("arrival_at") or "") or "—",
-        "origin_code": str(oc),
-        "dest_code": str(dc),
+        "origin_code": _iata_display_city(str(oc)),
+        "dest_code": _iata_display_city(str(dc)),
         "route_subline": route_subline,
         "price_display": price_disp or "—",
         "flex_line": _offer_flex_card_line(offer),
@@ -1248,6 +1428,122 @@ def _exec_offer_card(
         "badge_class": "selected" if idx == 0 else "alt",
         "badge_text": "Recommended" if idx == 0 else "Alternative",
     }
+
+
+def _offer_split_outbound_inbound_flight_details(offer: dict) -> Tuple[dict, dict]:
+    """Extrait les dicts aller / retour pour une offre.
+
+    - `flight_details` dict → segment aller; retour via clés dédiées ou vide.
+    - `flight_details` liste de dicts → [0] aller, [1] retour si pas de clé retour explicite.
+    """
+    raw = offer.get("flight_details")
+    from_list: dict = {}
+    if isinstance(raw, list):
+        legs = [x for x in raw if isinstance(x, dict)]
+        fd_out = legs[0] if legs else {}
+        if len(legs) > 1:
+            from_list = legs[1]
+    elif isinstance(raw, dict):
+        fd_out = raw
+    else:
+        fd_out = {}
+    fd_in = (
+        offer.get("return_flight_details")
+        or offer.get("inbound_flight_details")
+        or offer.get("flight_details_return")
+        or offer.get("flight_details_inbound")
+        or from_list
+        or {}
+    )
+    return fd_out, fd_in if isinstance(fd_in, dict) else {}
+
+
+def _augment_offer_cards_round_trip(
+    *,
+    offer_cards: List[dict],
+    offers: List[dict],
+    travel: dict,
+    origin: str,
+    destination: str,
+) -> None:
+    """Ajoute les champs attendus par les templates round-trip (best-effort).
+
+    Convention de payload supportée (optionnelle):
+    - chaque offer peut contenir un dict inbound sous l’une des clés suivantes:
+      - `return_flight_details`
+      - `inbound_flight_details`
+      - `flight_details_return`
+      - `flight_details_inbound`
+    - ou `flight_details` comme **liste** `[segment_aller, segment_retour]` (le 2ᵉ
+      segment est utilisé si aucune clé retour explicite n’est présente).
+    Si absent, on rend quand même la carte AR avec des valeurs "—" et la date de
+    retour (si présente dans `extracted_travel.return_date`).
+    """
+
+    ret_date = (travel.get("return_date") or "").strip()
+    inbound_date = _fmt_date(ret_date) if ret_date else "—"
+    for i in range(min(len(offer_cards), len(offers))):
+        card = offer_cards[i]
+        offer = offers[i]
+        fd_out, fd_in = _offer_split_outbound_inbound_flight_details(offer)
+
+        out_dep_at = fd_out.get("departure_at") or ""
+        out_arr_at = fd_out.get("arrival_at") or ""
+        out_date = _fmt_date(out_dep_at) or _fmt_date(travel.get("departure_date", "")) or "—"
+        out_arr_date = _fmt_date(out_arr_at) or out_date or "—"
+
+        in_dep_at = fd_in.get("departure_at") or ""
+        in_arr_at = fd_in.get("arrival_at") or ""
+        in_date = _fmt_date(in_dep_at) or inbound_date
+        in_arr_date = _fmt_date(in_arr_at) or in_date or "—"
+
+        out_org = str(fd_out.get("origin") or origin or "?")
+        out_dst = str(fd_out.get("destination") or destination or "?")
+        has_inbound_leg = bool(
+            (fd_in.get("departure_at") or "").strip()
+            or (fd_in.get("arrival_at") or "").strip()
+        )
+        if has_inbound_leg:
+            in_org = str(fd_in.get("origin") or out_dst or "?")
+            in_dst = str(fd_in.get("destination") or out_org or "?")
+        else:
+            in_org, in_dst = out_dst, out_org
+
+        out_dep_t = _fmt_time(out_dep_at) or "—"
+        out_arr_t = _fmt_time(out_arr_at) or "—"
+        in_dep_t = _fmt_time(in_dep_at) or "—"
+        in_arr_t = _fmt_time(in_arr_at) or "—"
+
+        card.update(
+            {
+                "round_trip": True,
+                "dep_time": out_dep_t,
+                "arr_time": out_arr_t,
+                "outbound_date": out_date,
+                "outbound_arr_date": out_arr_date,
+                "outbound_duration": _fmt_duration(fd_out.get("duration") or "") or "—",
+                "outbound_stops": _routing(fd_out.get("stops", 0)),
+                "inbound_date": in_date,
+                "inbound_arr_date": in_arr_date,
+                "inbound_duration": _fmt_duration(fd_in.get("duration") or "") or "—",
+                "inbound_stops": _routing(fd_in.get("stops", "N/A")) if fd_in else "—",
+                "ret_dep_time": in_dep_t,
+                "ret_arr_time": in_arr_t,
+                "origin_code": _iata_display_city(out_org),
+                "dest_code": _iata_display_city(out_dst),
+                # Champs détaillés par sens (template aller-retour)
+                "out_dep_time": out_dep_t,
+                "out_arr_time": out_arr_t,
+                "out_dep_place": _iata_display_city(out_org),
+                "out_arr_place": _iata_display_city(out_dst),
+                "out_travel_day": out_date,
+                "in_dep_time": in_dep_t,
+                "in_arr_time": in_arr_t,
+                "in_dep_place": _iata_display_city(in_org),
+                "in_arr_place": _iata_display_city(in_dst),
+                "in_travel_day": in_date,
+            }
+        )
 
 
 def _exec_build_quick_rows(
@@ -1541,12 +1837,90 @@ def generate_audit_report_html_executive(fare_result_dict: dict) -> str:
     )
 
 
-def resolve_audit_report_html(fare_result_dict: dict) -> str:
+def generate_audit_report_html_reservation_documents(fare_result_dict: dict) -> str:
+    """Construit l’HTML du document “réservation” (2 pages) basé sur les templates `documents/`.
+
+    - **Entrée**: `fare_result_dict` (dict sérialisé issu de `FareResult.model_dump()`).
+    - **Choix template**:
+      - aller simple: `documents/template-reservation-aller-simple.html`
+      - aller-retour: `documents/template-reservation-aller-retour.html`
+    - **Données attendues**: mêmes champs que le rapport executive:
+      - `metadata.extracted_travel` + `metadata.top_offers` (+ optionnel inbound par offre)
+    """
+    meta, fare_id, travel = _exec_parse_inputs(fare_result_dict)
+    tctx = _exec_build_travel_context(meta=meta, fare_id=fare_id, travel=travel)
+    octx = _exec_build_offer_and_comparison_context(meta=meta, tctx=tctx)
+
+    ranked_offers_sub = "Scannable comparison for executive review. Full conditions are expanded on page 2."
+    disclaimer_text = (
+        "This report is provided for informational and decision-support purposes only. "
+        "All fares, availability, and fare conditions remain subject to airline change until ticketed. "
+        "FairFare conducts an independent comparative review based on the data available at the time of analysis. "
+        "Final booking decisions remain subject to inventory control, fare rule enforcement, and internal approval."
+    )
+
+    qr_plain = _executive_plain_qr_payload(_exec_qr_args(fare_id=fare_id, tctx=tctx, octx=octx))
+    qr_data_uri = _exec_qr_data_uri(
+        qr_plain=qr_plain,
+        fare_id=fare_id,
+        audit_id=tctx["audit_id"],
+        route_title=tctx["route_title"],
+        n=octx["n"],
+    )
+
+    # For round-trip rendering, enrich each card with inbound/outbound fields.
+    if _travel_is_round_trip(travel):
+        _augment_offer_cards_round_trip(
+            offer_cards=octx["offer_cards"],
+            offers=octx["offers"],
+            travel=travel,
+            origin=tctx["origin"],
+            destination=tctx["destination"],
+        )
+        template = _get_reservation_round_trip_template()
+    else:
+        for c in octx["offer_cards"]:
+            c.setdefault("round_trip", False)
+        template = _get_reservation_one_way_template()
+
+    return template.render(
+        logo_data_uri=_LOGO_DATA_URI,
+        partner_label="Partner placement",
+        partner_title="Promote travel services that complement the audit",
+        route_title=tctx["route_title"],
+        route_sub=octx["route_sub"],
+        travel_date_meta=tctx["travel_date_meta"],
+        passenger_meta=tctx["passenger"],
+        sector_meta=octx["sector_meta"],
+        cabin_meta=tctx["cabin"],
+        audit_id=tctx["audit_id"],
+        rec_title=octx["rec_title"],
+        rec_bullets=octx["rec_bullets"],
+        policy_status=octx["policy_status"],
+        flexibility_status=octx["flexibility_status"],
+        ranked_offers_sub=ranked_offers_sub,
+        offer_cards=octx["offer_cards"],
+        offer_heads=octx["offer_heads"],
+        offer_heads_det=octx["offer_heads_det"],
+        quick_rows=octx["quick_rows"],
+        exec_compare_sub=octx["exec_compare_sub"],
+        disclaimer_text=disclaimer_text,
+        qr_data_uri=qr_data_uri,
+        page2_subtitle=octx["page2_subtitle"],
+        selected_letter=octx["selected_letter"],
+        detail_blocks=octx["detail_blocks"],
+    )
+
+
+def resolve_audit_report_html(fare_result_dict: dict, layout: str | None = None) -> str:
     """Routeur “layout → HTML generator”.
 
     - **Rôle / impact**: point d’extension si plusieurs layouts existent.
     - **Utilisé par**: `SQSConsumer._build_report`.
     """
+    layout_norm = (layout or "").strip().lower()
+    if layout_norm in {"reservation", "reservation_documents", "reservation-documents"}:
+        return generate_audit_report_html_reservation_documents(fare_result_dict)
     return generate_audit_report_html_executive(fare_result_dict)
 
 

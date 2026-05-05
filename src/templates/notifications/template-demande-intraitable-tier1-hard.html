@@ -1,0 +1,76 @@
+<!DOCTYPE html>
+<html lang="fr">
+
+<head>
+    <meta charset="utf-8">
+    <title>FairFare — Demande incomplète</title>
+</head>
+
+<body
+    style="margin:0;padding:0;font-family: Arial, Helvetica, sans-serif; font-size: 15px; line-height: 1.6; color: #222; background:#ffffff;">
+    {% set v = event.variables %}
+    <div style="max-width:720px;margin:0 auto;padding:24px 18px;">
+        <p style="font-size:12px;letter-spacing:0.06em;color:#444;margin:0 0 14px 0;">
+            <strong>FAIRFARE™</strong> — DEMANDE INCOMPLÈTE
+        </p>
+        <hr style="border:0;border-top:1px solid #e6e6e6;margin:0 0 18px 0;">
+
+        <p style="margin:0 0 12px 0;">
+            Bonjour{% if v.user_first_name %} {{ v.user_first_name }}{% endif %},
+        </p>
+
+        <p style="margin:0 0 12px 0;">
+            Votre demande ne peut pas être traitée en l’état.
+            {% if v.human_summary %}<br><strong>Résumé :</strong> {{ v.human_summary }}{% endif %}
+        </p>
+
+        <p style="margin:0 0 8px 0;"><strong>Éléments à corriger / compléter :</strong></p>
+        <ul style="margin:0 0 16px 0;padding-left:20px;">
+            {% for m in (v.missing_fields or []) %}
+            <li style="margin:0 0 10px 0;">
+                <strong>{{ m.label }}</strong><br>
+                {% if m.expected %}<span style="color:#333;">Attendu :</span> {{ m.expected }}<br>{% endif %}
+                {% if m.found %}<span style="color:#333;">Reçu :</span> {{ m.found }}<br>{% endif %}
+                {% if m.fix_hint %}<span style="color:#333;">À faire :</span> {{ m.fix_hint }}{% endif %}
+            </li>
+            {% endfor %}
+        </ul>
+
+        {% if v.non_blocking_rules and v.non_blocking_rules|length > 0 %}
+        <div
+            style="background:#f7f7f7;border:1px solid #e8e8e8;border-radius:10px;padding:12px 14px;margin:0 0 14px 0;">
+            <p style="margin:0;font-size:13px;color:#333;">
+                Informations recommandées (non bloquantes)&nbsp;: {{ v.non_blocking_rules | join(", ") }}.
+            </p>
+        </div>
+        {% endif %}
+
+        <p style="margin:0 0 14px 0;">
+            Référence&nbsp;: <strong>{{ event.event_id }}</strong>
+            {% if event.context and event.context.source_message_id %} · Message-ID&nbsp;: <strong>{{
+                event.context.source_message_id }}</strong>{% endif %}
+        </p>
+
+        <p style="margin:0 0 12px 0;">
+            Réponds simplement à cet email avec les informations manquantes, et nous relancerons le traitement.
+        </p>
+
+        <p style="margin:0 0 12px 0;">
+            {% if v.support_contact %}
+            Contact : <a href="mailto:{{ v.support_contact }}">{{ v.support_contact }}</a>
+            {% endif %}
+        </p>
+
+        <p style="margin:18px 0 0 0;">
+            Bien cordialement,<br>
+            <strong>FairFare™ | Smart Travel Intelligence Team</strong>
+        </p>
+
+        <hr style="border:0;border-top:1px solid #e6e6e6;margin:18px 0 12px 0;">
+        <p style="margin:0;font-size:12px;color:#666;">
+            Cet email a été généré automatiquement.
+        </p>
+    </div>
+</body>
+
+</html>

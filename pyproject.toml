@@ -14,6 +14,7 @@ dependencies = [
     "qrcode>=7.4.2",
     "pillow>=10.0.0",
     "aws-xray-sdk>=2.12.0",
+    "airportsdata>=20250210",
 ]
 
 [build-system]

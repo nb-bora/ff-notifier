@@ -76,9 +76,18 @@ class Settings:
     s3_pdf_sse_kms_key_id: str = os.getenv("S3_PDF_SSE_KMS_KEY_ID", "")
 
     sqs_fare_result_queue_url: str = os.getenv("SQS_FARE_RESULT_QUEUE_URL", "")
+    # Notifications queue (NotificationEvent contract)
+    sqs_notifications_queue_url: str = os.getenv("SQS_NOTIFICATIONS_QUEUE_URL", "")
     sqs_max_messages: int = int(os.getenv("SQS_MAX_MESSAGES", "10"))
     sqs_wait_time_seconds: int = int(os.getenv("SQS_WAIT_TIME_SECONDS", "20"))
     sqs_visibility_timeout: int = int(os.getenv("SQS_VISIBILITY_TIMEOUT", "300"))
+    # Heartbeat: extend visibility timeout during long processing
+    sqs_heartbeat_interval_seconds: int = int(
+        os.getenv("SQS_HEARTBEAT_INTERVAL_SECONDS", "60")
+    )
+    sqs_heartbeat_extend_seconds: int = int(
+        os.getenv("SQS_HEARTBEAT_EXTEND_SECONDS", "120")
+    )
 
     ses_sender_email: str = os.getenv("SES_SENDER_EMAIL", "")
     ses_max_retries: int = int(os.getenv("SES_MAX_RETRIES", "3"))
@@ -111,6 +120,9 @@ class Settings:
     )
 
     consumer_enabled: bool = os.getenv("CONSUMER_ENABLED", "true").lower() == "true"
+    notifications_consumer_enabled: bool = (
+        os.getenv("NOTIFICATIONS_CONSUMER_ENABLED", "true").lower() == "true"
+    )
     consumer_max_retries: int = int(os.getenv("CONSUMER_MAX_RETRIES", "3"))
     consumer_error_delay_seconds: int = int(
         os.getenv("CONSUMER_ERROR_DELAY_SECONDS", "5")
@@ -135,6 +147,18 @@ class Settings:
 
     pdf_render_timeout_seconds: int = int(
         os.getenv("PDF_RENDER_TIMEOUT_SECONDS", "120")
+    )
+
+    # Notifications routing
+    notifications_support_email: str = os.getenv("NOTIFICATIONS_SUPPORT_EMAIL", "")
+
+    # Idempotence / dedup for notifications (when queue is Standard or as extra safety)
+    notifications_dedup_mode: str = os.getenv("NOTIFICATIONS_DEDUP_MODE", "memory")
+    notifications_dedup_ttl_seconds: int = int(
+        os.getenv("NOTIFICATIONS_DEDUP_TTL_SECONDS", str(24 * 3600))
+    )
+    notifications_dedup_dynamodb_table: str = os.getenv(
+        "NOTIFICATIONS_DEDUP_DYNAMODB_TABLE", ""
     )
 
     def get_email_template(self) -> Optional[str]:

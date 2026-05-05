@@ -4,6 +4,7 @@ from unittest.mock import MagicMock
 import pytest
 
 from infrastructure.messaging.sqs_consumer import SQSConsumer
+import asyncio
 
 
 @pytest.mark.asyncio
@@ -12,6 +13,7 @@ async def test_consumer_deletes_message_after_success(monkeypatch):
     c.sqs_client = MagicMock()
 
     async def _execute(**kwargs):
+        await asyncio.sleep(0)
         class _R:
             should_delete_message = True
             emails_sent = 1
@@ -38,6 +40,49 @@ async def test_consumer_deletes_message_after_success(monkeypatch):
 
     await c._process_message_inner(msg)  # type: ignore[attr-defined]
     assert c.sqs_client.delete_message.called
+
+
+@pytest.mark.asyncio
+async def test_consumer_extends_visibility_while_processing(monkeypatch):
+    c = SQSConsumer(api_metrics=None)
+    c.sqs_client = MagicMock()
+    c.sqs_client.change_message_visibility.return_value = {}
+
+    # Make heartbeat fast
+    monkeypatch.setattr("infrastructure.messaging.sqs_consumer.settings.sqs_heartbeat_interval_seconds", 1)
+    monkeypatch.setattr("infrastructure.messaging.sqs_consumer.settings.sqs_heartbeat_extend_seconds", 10)
+
+    async def _execute(**kwargs):
+        await asyncio.sleep(2)
+
+        class _R:
+            should_delete_message = True
+            emails_sent = 0
+            errors = 0
+
+        return _R()
+
+    import asyncio
+
+    c._use_case.execute = _execute  # type: ignore[attr-defined]
+
+    msg = {
+        "MessageId": "m-hb",
+        "ReceiptHandle": "rh-hb",
+        "Body": json.dumps(
+            {
+                "id": "r1",
+                "fare_event_id": "fe1",
+                "timestamp": "2026-01-01T00:00:00+00:00",
+                "status": "analysis_complete",
+                "metadata": {"sender": "user@example.com"},
+            }
+        ),
+        "MessageAttributes": {},
+    }
+
+    await c._process_message_inner(msg)  # type: ignore[attr-defined]
+    assert c.sqs_client.change_message_visibility.called
 
 
 @pytest.mark.asyncio

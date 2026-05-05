@@ -27,6 +27,7 @@ from fastapi.responses import JSONResponse
 
 from config import settings
 from infrastructure.messaging.sqs_consumer import SQSConsumer
+from infrastructure.messaging.notifications_sqs_consumer import NotificationsSQSConsumer
 from logger import logger
 from presentation.schemas import HealthResponse, MetricsResponse
 from xray_config import init_xray
@@ -65,6 +66,7 @@ class Metrics:
 
 metrics = Metrics()
 sqs_consumer = None
+notifications_consumer = None
 
 
 @asynccontextmanager
@@ -81,7 +83,7 @@ async def lifespan(_app: FastAPI):
     - **Utilise**: `config.settings`, `SQSConsumer.start/stop`.
     - **Effets de bord**: crée une tâche de polling SQS + threads (executor).
     """
-    global sqs_consumer
+    global sqs_consumer, notifications_consumer
 
     logger.info("Starting FairFare Notifier Service")
     logger.info(f"Consumer enabled: {settings.consumer_enabled}")
@@ -102,6 +104,17 @@ async def lifespan(_app: FastAPI):
         else:
             logger.info("SQS Consumer is disabled")
 
+        if settings.notifications_consumer_enabled:
+            if not settings.sqs_notifications_queue_url:
+                logger.warning(
+                    "SQS_NOTIFICATIONS_QUEUE_URL is empty; notifications consumer will fail to poll"
+                )
+            notifications_consumer = NotificationsSQSConsumer(api_metrics=metrics)
+            notifications_consumer.start()
+            logger.info("Notifications SQS Consumer started")
+        else:
+            logger.info("Notifications SQS Consumer is disabled")
+
         logger.info("Application startup complete")
     except Exception as e:
         logger.error(f"Error during startup: {str(e)}", exc_info=True)
@@ -113,6 +126,9 @@ async def lifespan(_app: FastAPI):
     if sqs_consumer:
         with contextlib.suppress(asyncio.CancelledError):
             await sqs_consumer.stop()
+    if notifications_consumer:
+        with contextlib.suppress(asyncio.CancelledError):
+            await notifications_consumer.stop()
     logger.info("Shutdown complete")
 
 
