@@ -25,7 +25,13 @@
         </p>
 
         {% if v.missing_fields and v.missing_fields|length > 0 %}
-        <p style="margin:0 0 8px 0;"><strong>Merci de compléter les informations suivantes :</strong></p>
+        <p style="margin:0 0 8px 0;">
+            <strong>Merci de compléter les informations obligatoires suivantes :</strong><br>
+            <span style="font-size:13px;color:#444;">
+                Réponds directement à cet email en ajoutant les éléments manquants (tu peux copier-coller le modèle de
+                réponse ci-dessous).
+            </span>
+        </p>
         <ul style="margin:0 0 16px 0;padding-left:20px;">
             {% for m in v.missing_fields %}
             <li style="margin:0 0 10px 0;">
@@ -36,6 +42,21 @@
             </li>
             {% endfor %}
         </ul>
+
+        <div
+            style="background:#f7f7ff;border:1px solid #e3e3ff;border-radius:10px;padding:12px 14px;margin:0 0 14px 0;">
+            <p style="margin:0 0 8px 0;font-size:13px;color:#333;">
+                <strong>Modèle de réponse (copier/coller) :</strong>
+            </p>
+            <pre
+                style="margin:0;background:#ffffff;border:1px solid #e8e8ff;border-radius:10px;padding:10px 12px;white-space:pre-wrap;word-break:break-word;font-size:12px;line-height:1.5;color:#222;">Nom: [Prénom Nom]
+Départ (IATA): [ex: CDG]
+Arrivée (IATA): [ex: JFK]
+Date de départ: [AAAA-MM-JJ]
+Type: [aller simple | aller-retour]
+Classe: [economy | premium_economy | business | first]
+Passagers: [nombre]</pre>
+        </div>
         {% else %}
         <p style="margin:0 0 8px 0;"><strong>Merci de répondre en précisant :</strong></p>
         <ul style="margin:0 0 16px 0;padding-left:20px;">
